@@ -1,0 +1,12 @@
+node_modules
+dist
+release
+.DS_Store
+*.log
+.env
+.env.local
+*.sage
+
+# Large files exceeding GitHub limit
+OpenHuman/
+open-design-main.zip

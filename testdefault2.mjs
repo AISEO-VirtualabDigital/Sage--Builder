@@ -1,0 +1,1 @@
+import electron from "electron"; console.log("typeof:", typeof electron); console.log("keys:", Object.keys(electron)); console.log("has app:", !!electron.app); console.log("has BrowserWindow:", !!electron.BrowserWindow);

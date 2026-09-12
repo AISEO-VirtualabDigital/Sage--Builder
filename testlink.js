@@ -1,0 +1,1 @@
+if (process._linkedBinding) { console.log("_linkedBinding exists"); const e = process._linkedBinding("electron"); console.log(typeof e); if (e) { console.log("keys:", Object.keys(e)); } } else { console.log("_linkedBinding not found"); }
