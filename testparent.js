@@ -1,1 +1,0 @@
-if (module.parent) { console.log("parent exists"); const p = module.parent.require("electron"); console.log(typeof p); if (typeof p === "object") { console.log("has app:", !!p.app); } else { console.log("p is:", p); } } else { console.log("no parent"); }

@@ -28,44 +28,30 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
     "@types/uuid": "^9.0.7",
-    "@typescript-eslint/eslint-plugin": "^8.70.0",
-    "@typescript-eslint/parser": "^8.70.0",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
-    "electron": "^44.0.0",
-    "electron-builder": "^24.13.3",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
     "eslint": "^8.55.0",
-    "eslint-plugin-import": "^2.32.0",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.1.1",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.2",
+    "typescript": "^5.3.3",
     "vite": "^5.0.8",
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.virtualabdigital.sage",
-    "productName": "SAGE by Virtualab Digital",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": "nsis"
-    },
-    "mac": {
-      "target": "dmg"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
+    "appId": "com.virtualabdigital.sage-builder",
+    "productName": "SAGE Builder",
+    "files": ["dist/**/*"],
+    "directories": { "output": "release" },
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg" },
+    "linux": { "target": "AppImage" }
   }
 }

@@ -23,12 +23,82 @@ export class AiClient {
   async generate(req: AiGenerateRequest): Promise<AiGenerateResult> {
     switch (req.provider) {
       case 'local': return this.generateLocal(req.prompt)
-      case 'openrouter': return this.generateOpenRouter(req)
-      case 'gemini': return this.generateGemini(req)
+      case 'openrouter': return this.generateOpenAICompatible(req, 'https://openrouter.ai/api/v1', 'meta-llama/llama-3.3-70b-instruct:free')
+      case 'gemini': return this.generateOpenAICompatible(req, 'https://generativelanguage.googleapis.com/v1beta/openai', 'gemini-2.0-flash')
       case 'anthropic': return this.generateAnthropic(req)
       case 'ollama': return this.generateOllama(req)
       default: throw new Error(`Unknown provider ${req.provider}`)
     }
+  }
+
+  /** Auto-detect available Ollama models */
+  static async detectOllamaModels(): Promise<string[]> {
+    try {
+      // Try Electron IPC first
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.ollamaListModels) {
+        const result = await (window as any).electronAPI.ollamaListModels()
+        if (result.success) return result.models
+      }
+      // Fallback: direct fetch
+      const res = await fetch('http://localhost:11434/api/tags')
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data.models || []).map((m: any) => m.name)
+    } catch {
+      return []
+    }
+  }
+
+  /** Check if Ollama is running */
+  static async isOllamaRunning(): Promise<boolean> {
+    try {
+      const res = await fetch('http://localhost:11434/api/tags')
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  private async generateOllama(req: AiGenerateRequest): Promise<AiGenerateResult> {
+    const endpoint = req.config.endpoint || 'http://localhost:11434'
+    const model = req.config.model || 'llama3.1:8b'
+    
+    // Use /api/chat (new API) instead of /api/generate (old)
+    const res = await fetch(`${endpoint}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: req.prompt },
+        ],
+        stream: false,
+        options: { temperature: 0.3 },
+      }),
+    })
+    if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`)
+    const data = await res.json()
+    const text = data.message?.content || ''
+    return this.parseLlmJson(text)
+  }
+
+  private async generateOpenAICompatible(req: AiGenerateRequest, baseUrl: string, defaultModel: string): Promise<AiGenerateResult> {
+    if (!req.config.apiKey) throw new Error('API key missing')
+    const model = req.config.model || defaultModel
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${req.config.apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: req.prompt }],
+        temperature: 0.3,
+      }),
+    })
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`)
+    const data = await res.json()
+    const text = data.choices?.[0]?.message?.content || ''
+    return this.parseLlmJson(text)
   }
 
   private async generateAnthropic(req: AiGenerateRequest): Promise<AiGenerateResult> {
@@ -37,17 +107,8 @@ export class AiClient {
     const endpoint = req.config.endpoint || 'https://api.anthropic.com/v1/messages'
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'x-api-key': req.config.apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: req.prompt }],
-      }),
+      headers: { 'x-api-key': req.config.apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, max_tokens: 4096, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: req.prompt }] }),
     })
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
     const data = await res.json()
@@ -55,95 +116,54 @@ export class AiClient {
     return this.parseLlmJson(text)
   }
 
-  private async generateOllama(req: AiGenerateRequest): Promise<AiGenerateResult> {
-    const endpoint = req.config.endpoint || 'http://localhost:11434/api/generate'
-    const model = req.config.model || 'llama3'
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt: `${SYSTEM_PROMPT}\n\nUser: ${req.prompt}`,
-        stream: false,
-      }),
-    })
-    if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`)
-    const data = await res.json()
-    const text = data.response || ''
-    return this.parseLlmJson(text)
-  }
-
   private async generateLocal(prompt: string): Promise<AiGenerateResult> {
-    const p = prompt.toLowerCase()
-    if (p.includes('hero')) {
-      return { nodes: [{ id: uuidv4(), type: 'heroSection', props: { title: 'Welcome to Our Site', subtitle: prompt.slice(0,80), ctaLabel: 'Get Started', ctaHref: '#' }, styles: {}, attributes: {}, children: [] }] }
-    }
-    if (p.includes('cta') || p.includes('call')) {
-      return { nodes: [{ id: uuidv4(), type: 'callToAction', props: { title: 'Ready to start?', content: prompt.slice(0,100), buttonLabel: 'Contact Us', buttonHref: '#' }, styles: {}, attributes: {} }] }
-    }
-    if (p.includes('gallery')) {
-      return { nodes: [{ id: uuidv4(), type: 'imageGallery', props: { images: [], columns: 3 }, styles: {}, attributes: {} }] }
-    }
+    // Mock generation for testing
     return {
-      nodes: [
-        { id: uuidv4(), type: 'heading', props: { content: prompt.slice(0,40) || 'AI Generated Heading', tag: 'h2' }, styles: {}, attributes: {} },
-        { id: uuidv4(), type: 'text', props: { content: prompt.slice(0,200) || 'AI generated content' }, styles: {}, attributes: {} },
-        { id: uuidv4(), type: 'button', props: { label: 'Learn More', href: '#' }, styles: {}, attributes: {} },
-      ]
+      nodes: [{
+        id: uuidv4(),
+        type: 'container',
+        props: { content: `AI generated: ${prompt}` },
+        styles: { padding: '20px', backgroundColor: '#f0f0f0' },
+        attributes: {},
+        children: [],
+      }],
     }
   }
 
-  private async generateOpenRouter(req: AiGenerateRequest): Promise<AiGenerateResult> {
-    if (!req.config.apiKey) throw new Error('OpenRouter API key missing')
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${req.config.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://virtualabdigital.com',
-      },
-      body: JSON.stringify({
-        model: req.config.model || 'openai/gpt-4o-mini',
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: req.prompt }],
-        temperature: 0.7,
-      })
-    })
-    if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${await res.text()}`)
-    const data = await res.json()
-    return this.parseLlmJson(data.choices?.[0]?.message?.content || '')
-  }
-
-  private async generateGemini(req: AiGenerateRequest): Promise<AiGenerateResult> {
-    if (!req.config.apiKey) throw new Error('Gemini API key missing')
-    const model = req.config.model || 'gemini-1.5-flash'
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${req.config.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: `${SYSTEM_PROMPT}\n\nUser: ${req.prompt}` }] }] })
-    })
-    if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
-    const data = await res.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-    return this.parseLlmJson(text)
-  }
-
-  private parseLlmJson(content: string): AiGenerateResult {
+  private parseLlmJson(text: string): AiGenerateResult {
+    // Try to extract JSON from the text
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      return { nodes: [{ id: uuidv4(), type: 'text', props: { content: text }, styles: {}, attributes: {}, children: [] }] }
+    }
     try {
-      const jsonStr = content.match(/\{[\s\S]*\}/)?.[0] || content
-      const parsed = JSON.parse(jsonStr)
-      const nodes = (parsed.nodes || parsed.elements || []).map((n: Partial<ElementNode>) => ({ id: uuidv4(), type: n.type as ElementNode['type'] || 'text', props: n.props || {}, styles: n.styles || {}, attributes: {}, children: n.children?.map(c => ({ ...c, id: uuidv4() })) }))
-      return { nodes: nodes.length ? nodes : [{ id: uuidv4(), type: 'text', props: { content }, styles: {}, attributes: {} }], css: parsed.css, js: parsed.js }
+      const parsed = JSON.parse(jsonMatch[0])
+      return {
+        nodes: (parsed.nodes || []).map((n: any) => ({
+          id: uuidv4(),
+          type: n.type || 'container',
+          props: n.props || {},
+          styles: n.styles || {},
+          attributes: n.attributes || {},
+          children: n.children || [],
+        })),
+        css: parsed.css,
+        js: parsed.js,
+      }
     } catch {
-      return { nodes: [{ id: uuidv4(), type: 'text', props: { content }, styles: {}, attributes: {} }] }
+      return { nodes: [{ id: uuidv4(), type: 'text', props: { content: text }, styles: {}, attributes: {}, children: [] }] }
     }
   }
 }
 
-export function getStoredAiConfig(): AiConfig {
-  return {
-    provider: (localStorage.getItem('virtualab_ai_provider') as AiProvider) || 'local',
-    apiKey: localStorage.getItem('virtualab_ai_key') || undefined,
-    model: localStorage.getItem('virtualab_ai_model') || undefined,
-    endpoint: localStorage.getItem('virtualab_ai_endpoint') || undefined,
+export function getStoredAiConfig(): { provider: AiProvider; apiKey?: string; model?: string; endpoint?: string } {
+  const stored = localStorage.getItem('virtualab_ai_config')
+  if (stored) {
+    try { return JSON.parse(stored) } catch {}
   }
+  return { provider: 'ollama', endpoint: 'http://localhost:11434', model: 'llama3.1:8b' }
+}
+
+export function setStoredAiConfig(config: { provider: AiProvider; apiKey?: string; model?: string; endpoint?: string }) {
+  localStorage.setItem('virtualab_ai_config', JSON.stringify(config))
 }

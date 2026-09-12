@@ -94,7 +94,8 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
-        dispatch(undoProject())
+        // TODO: load template by key
+    dispatch(undoProject())
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault()
@@ -185,7 +186,8 @@ export default function App() {
     setShowTemplateGallery(true)
   }
 
-  const handleSelectTemplate = (_templateKey: string) => {
+  const handleSelectTemplate = (templateKey: string) => {
+    // TODO: load template by key
     dispatch(undoProject())
   }
 

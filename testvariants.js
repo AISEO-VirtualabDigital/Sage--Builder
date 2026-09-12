@@ -1,1 +1,0 @@
-const variants = ["_electron", "__electron", "electronModule", "electronMain", "electronAPI"]; for (let k in variants) { let v = variants[k]; if (global[v]) { console.log(v, "exists:", typeof global[v]); if (typeof global[v] === "object") { console.log("  has app:", !!global[v].app); } } }

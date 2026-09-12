@@ -1,9 +1,10 @@
 import { app, BrowserWindow, Menu, shell, dialog, ipcMain } from 'electron'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { promises as fs } from 'fs'
 
-declare const __dirname: string
-declare const __filename: string
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
 
@@ -23,8 +24,9 @@ function createWindow() {
     },
   })
 
-  if (process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173')
+  const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
+  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+    mainWindow.loadURL(devUrl)
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
@@ -37,72 +39,21 @@ function createWindow() {
 
 function buildMenu() {
   const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'zoomIn' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: 'Learn More',
-          click: async () => {
-            await shell.openExternal('https://example.com')
-          },
-        },
-      ],
-    },
+    { label: 'File', submenu: [{ role: 'quit' }] },
+    { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    { label: 'View', submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
+    { label: 'Help', submenu: [{ label: 'Learn More', click: async () => { await shell.openExternal('https://virtualabdigital.com') } }] },
   ]
-
-  const menu = Menu.buildFromTemplate(template)
-  Menu.setApplicationMenu(menu)
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 app.whenReady().then(() => {
   createWindow()
   buildMenu()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
-  })
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 
 // IPC handlers
 ipcMain.handle('project:save', async (_event, projectPath: string, data: unknown) => {
@@ -121,18 +72,14 @@ ipcMain.handle('project:open', async () => {
 })
 
 ipcMain.handle('project:export-html', async (_event, html: string) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
-    filters: [{ name: 'HTML', extensions: ['html'] }],
-  })
+  const result = await dialog.showSaveDialog(mainWindow!, { filters: [{ name: 'HTML', extensions: ['html'] }] })
   if (result.canceled) return null
   await fs.writeFile(result.filePath!, html)
   return { success: true }
 })
 
 ipcMain.handle('project:export-wp-theme', async (_event, themeData: { name: string; files: Record<string, string> }) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
-    properties: ['createDirectory', 'openDirectory'] as any,
-  })
+  const result = await dialog.showSaveDialog(mainWindow!, { properties: ['createDirectory', 'openDirectory'] as any })
   if (result.canceled) return null
   const baseDir = result.filePath!
   await fs.mkdir(baseDir, { recursive: true })
@@ -144,6 +91,19 @@ ipcMain.handle('project:export-wp-theme', async (_event, themeData: { name: stri
   return { success: true, path: baseDir }
 })
 
+// Ollama model auto-detection
+ipcMain.handle('ollama:list-models', async () => {
+  try {
+    const res = await fetch('http://localhost:11434/api/tags')
+    if (!res.ok) return { success: false, models: [], error: `HTTP ${res.status}` }
+    const data = await res.json()
+    return { success: true, models: (data.models || []).map((m: any) => m.name) }
+  } catch (error) {
+    return { success: false, models: [], error: (error as Error).message }
+  }
+})
+
+// WP REST handlers
 ipcMain.handle('wp:healthCheck', async (_event, siteUrl: string, username: string, password: string) => {
   try {
     const response = await fetch(`${siteUrl.replace(/\/$/, '')}/wp-json/wp/v2/users/me`, {
@@ -155,32 +115,11 @@ ipcMain.handle('wp:healthCheck', async (_event, siteUrl: string, username: strin
   }
 })
 
-ipcMain.handle('wp:uploadMedia', async (_event, siteUrl: string, username: string, password: string, filePath: string) => {
-  try {
-    const fileBuffer = await fs.readFile(filePath)
-    const fileName = path.basename(filePath)
-    const formData = new FormData()
-    formData.append('file', new Blob([fileBuffer], { type: 'application/octet-stream' }), fileName)
-    const response = await fetch(`${siteUrl.replace(/\/$/, '')}/wp-json/wp/v2/media`, {
-      method: 'POST',
-      headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
-      body: formData as any,
-    })
-    if (!response.ok) throw new Error(`Media upload failed: ${response.status}`)
-    return { success: true, data: await response.json() }
-  } catch (error) {
-    return { success: false, error: (error as Error).message }
-  }
-})
-
 ipcMain.handle('wp:createPost', async (_event, siteUrl: string, username: string, password: string, title: string, content: string, status: string) => {
   try {
     const response = await fetch(`${siteUrl.replace(/\/$/, '')}/wp-json/wp/v2/posts`, {
       method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, content, status: status || 'draft' }),
     })
     if (!response.ok) throw new Error(`Post creation failed: ${response.status}`)
@@ -196,23 +135,6 @@ ipcMain.handle('wp:getPosts', async (_event, siteUrl: string, username: string, 
       headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
     })
     if (!response.ok) throw new Error(`Failed to fetch posts: ${response.status}`)
-    return { success: true, data: await response.json() }
-  } catch (error) {
-    return { success: false, error: (error as Error).message }
-  }
-})
-
-ipcMain.handle('wp:updatePost', async (_event, siteUrl: string, username: string, password: string, postId: string, updates: Record<string, unknown>) => {
-  try {
-    const response = await fetch(`${siteUrl.replace(/\/$/, '')}/wp-json/wp/v2/posts/${postId}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(updates),
-    })
-    if (!response.ok) throw new Error(`Post update failed: ${response.status}`)
     return { success: true, data: await response.json() }
   } catch (error) {
     return { success: false, error: (error as Error).message }

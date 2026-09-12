@@ -7,17 +7,16 @@ interface CanvasProps {
   onSelectElement: (id: string) => void
   selectedElementId: string | null
   viewport: ViewportMode
-  onAddElement: (type: string) => void
+  onAddElement: (type: string, position?: 'append' | 'before' | 'after', targetId?: string) => void
 }
 
 export default function Canvas({ root, onSelectElement, selectedElementId, viewport, onAddElement }: CanvasProps) {
   const [{ isOver, canDrop }, drop] = useDrop(() => ({
     accept: 'ELEMENT',
-    drop: (_item: { type: string }, monitor) => {
+    drop: (item: { type: string }, monitor) => {
       if (monitor.didDrop()) return
-      const item = monitor.getItem()
       if (item && item.type) {
-        onAddElement(item.type)
+        onAddElement(item.type, 'append', 'root')
       }
       return { type: 'drop' }
     },
@@ -34,15 +33,14 @@ export default function Canvas({ root, onSelectElement, selectedElementId, viewp
       <div
         ref={drop}
         onClick={() => onSelectElement('root')}
-        className={`bg-white shadow-2xl transition-all duration-300 ${
-          isOver && canDrop ? 'ring-4 ring-emerald-500/50' : ''
-        }`}
+        className={`bg-white shadow-2xl transition-all duration-300 ${isOver && canDrop ? 'ring-4 ring-emerald-500/50' : ''}`}
         style={{ width: viewportWidth, minHeight: '600px' }}
       >
         <ElementRenderer
           node={root}
           selectedElementId={selectedElementId}
           onSelect={onSelectElement}
+          onAddElement={onAddElement}
           isRoot
         />
       </div>
